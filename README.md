@@ -1,156 +1,156 @@
 # VLC M3U Checker
 
-Herramienta con interfaz gráfica para comprobar si los streams de una lista **M3U / M3U8** realmente llegan a reproducirse con **VLC (libVLC)**. Ideal para auditar listas IPTV.
+Graphical tool to verify whether streams in an **M3U / M3U8** playlist actually play with **VLC (libVLC)**. Ideal for auditing IPTV lists.
 
-No basta con que la URL responda: el programa abre cada entrada con el motor de VLC y exige reproducción **estable** y, por defecto, **pista de vídeo real** (tamaño de frame, tracks o frames decodificados).
+A responding URL is not enough: the app opens each entry with the VLC engine and requires **stable** playback and, by default, a **real video track** (frame size, tracks, or decoded frames).
 
 ---
 
-## Características
+## Features
 
-- Interfaz gráfica (Tkinter), sin ventana de vídeo por canal
-- Parseo de listas M3U/M3U8 con nombres robustos (`tvg-name` y títulos con atributos mal formados)
-- Soporte de opciones por canal:
+- Graphical interface (Tkinter), no per-channel video window
+- M3U/M3U8 playlist parsing with robust name handling (`tvg-name` and titles with malformed attributes)
+- Per-channel option support:
   - `#EXTVLCOPT:` (User-Agent, Referer, cookies, etc.)
-  - `#EXTHTTP:` (JSON de cabeceras, p. ej. TiviMate)
-  - `#KODIPROP:…stream_headers=` (User-Agent / Referer estilo Kodi)
-- Criterio de éxito estricto:
-  - estado `Playing` mantenido durante un tiempo configurable
-  - evidencia de vídeo (resolución, track o frames decodificados)
-- Reintentos ante fallos probablemente transitorios
-- Exportación de resultados en CSV y M3U
-- Una sola instancia de VLC reutilizada
+  - `#EXTHTTP:` (JSON headers, e.g. TiviMate)
+  - `#KODIPROP:…stream_headers=` (Kodi-style User-Agent / Referer)
+- Strict success criteria:
+  - `Playing` state held for a configurable duration
+  - Evidence of video (resolution, track, or decoded frames)
+- Retries on likely transient failures
+- Export results to CSV and M3U
+- Single reused VLC instance
 
 ---
 
-## Requisitos
+## Requirements
 
-| Componente | Notas |
-|------------|--------|
+| Component | Notes |
+|-----------|--------|
 | **Python** | 3.9+ |
-| **VLC** | Instalado en el sistema ([videolan.org](https://www.videolan.org/)) |
-| **python-vlc** | Binding de libVLC |
+| **VLC** | Installed on the system ([videolan.org](https://www.videolan.org/)) |
+| **python-vlc** | libVLC binding |
 
 ```bash
 pip install python-vlc
 ```
 
-En Windows suele bastar con VLC instalado en la ruta por defecto.  
-En Linux, instala también el paquete de VLC de tu distribución (`vlc`, `libvlc`).
+On Windows, VLC installed in the default path is usually enough.  
+On Linux, also install your distribution’s VLC package (`vlc`, `libvlc`).
 
 ---
 
-## Uso rápido
+## Quick start
 
 ```bash
 python vlc_m3u_checker.py
 ```
 
-1. **"Abrir M3U / M3U8"** y elegir la lista.
-2. Ajustar parámetros si hace falta (ver abajo).
-3. Pulsar **Verificar streams**.
-4. Revisar la tabla (verde = OK, rojo = FALLÓ).
-5. Opcional: **Exportar CSV**, **Solo OK → M3U** o **Solo fallidos → M3U**.
+1. **"Open M3U / M3U8"** and choose the playlist.
+2. Adjust parameters if needed (see below).
+3. Click **Check streams**.
+4. Review the table (green = OK, red = FAILED).
+5. Optional: **Export CSV**, **OK only → M3U**, or **Failed only → M3U**.
 
-La verificación es **secuencial** (un canal tras otro). En listas grandes el tiempo total es aproximadamente:
+Checking is **sequential** (one channel after another). On large playlists, total time is roughly:
 
 ```text
-canales × (timeout efectivo + pausas de reintento)
+channels × (effective timeout + retry pauses)
 ```
 
 ---
 
-## Parámetros de la interfaz
+## UI parameters
 
-| Control | Default | Significado |
-|---------|---------|-------------|
-| **Timeout** | 20 s | Tiempo máximo de espera por intento y por canal |
-| **Playing mínimo** | 2,5 s | Segundos acumulados en estado `Playing` para dar por bueno el stream |
-| **Reintentos** | 1 | Intentos extra si el fallo parece temporal (buffering, timeout, etc.) |
-| **Exigir vídeo** | activado | Si está marcado, un stream solo de audio se marca como FALLÓ |
+| Control | Default | Meaning |
+|---------|---------|---------|
+| **Timeout** | 20 s | Maximum wait per attempt and per channel |
+| **Min. playing** | 2.5 s | Accumulated seconds in `Playing` state required to accept the stream |
+| **Retries** | 1 | Extra attempts if the failure looks temporary (buffering, timeout, etc.) |
+| **Require video** | on | When checked, an audio-only stream is marked FAILED |
 
-### Recomendaciones
+### Recommendations
 
-- Canales en directo lentos (arranque 10–15 s): **Timeout 25–30**, **Reintentos 1–2**.
-- Listas muy grandes: deja el timeout en 15–20 y acepta que algunos slow-start fallen; luego reanaliza solo los fallidos.
-- Radios / solo audio: desmarca **Exigir vídeo**.
-
----
-
-## Cómo decide OK / FALLÓ
-
-Para cada URL el motor:
-
-1. Crea un medio VLC con la URL y las opciones del M3U.
-2. Llama a `play()` sin interfaz de vídeo ni audio real (`dummy`).
-3. Durante el timeout observa:
-   - estado del player (`Opening`, `Buffering`, `Playing`, `Error`, …)
-   - tamaño de vídeo (`video_get_size`)
-   - pistas (vídeo/audio) cuando libVLC las expone
-   - estadísticas (`decoded_video`, `displayed_pictures`, bytes demux)
-4. Marca **OK** solo si:
-   - hubo `Playing` de forma sostenida ≥ *Playing mínimo*, **y**
-   - hay evidencia de medio válido (vídeo si “Exigir vídeo” está activo).
-5. Si falla y el motivo parece transitorio, reintenta según el contador de reintentos.
-
-### Resultados posibles
-
-| Estado | Significado |
-|--------|-------------|
-| **OK** | Reproducción estable con criterio de vídeo/audio cumplido |
-| **FALLÓ** | Error VLC, timeout, playing inestable, sin vídeo, etc. |
-| **CANCELADO** | Detenido por el usuario |
-| **PENDIENTE** | Aún no verificado |
+- Slow live channels (10–15 s startup): **Timeout 25–30**, **Retries 1–2**.
+- Very large playlists: keep timeout at 15–20 and accept that some slow-starts will fail; then re-check failed entries only.
+- Radio / audio-only: uncheck **Require video**.
 
 ---
 
-## Exportaciones
+## How OK / FAILED is decided
 
-- **CSV** (`;`): número, nombre, estado, detalle, resolución detectada, URL.
-- **M3U OK / fallidos**: se escribe la cabecera original de la lista (`#EXTM3U` u otra) y, para cada canal filtrado, **su bloque original completo** tal como estaba en el archivo de entrada:
-  - línea `#EXTINF` con todos los atributos (`tvg-id`, `tvg-logo`, `group-title`, etc.)
-  - directivas asociadas (`#EXTVLCOPT`, `#KODIPROP`, `#EXTHTTP`, …)
-  - URL del stream
+For each URL the engine:
 
-Así el resultado se puede volver a cargar en VLC, Kodi, TiviMate u otro cliente sin perder metadatos ni cabeceras HTTP por canal.
+1. Creates a VLC media with the URL and the M3U options.
+2. Calls `play()` with no real video or audio UI (`dummy`).
+3. During the timeout it watches:
+   - player state (`Opening`, `Buffering`, `Playing`, `Error`, …)
+   - video size (`video_get_size`)
+   - tracks (video/audio) when libVLC exposes them
+   - statistics (`decoded_video`, `displayed_pictures`, demux bytes)
+4. Marks **OK** only if:
+   - `Playing` was sustained for ≥ *Min. playing*, **and**
+   - there is evidence of valid media (video if “Require video” is on).
+5. On failure, if the reason looks transient, it retries according to the retry count.
+
+### Possible results
+
+| Status | Meaning |
+|--------|---------|
+| **OK** | Stable playback meeting the video/audio criteria |
+| **FAILED** | VLC error, timeout, unstable playing, no video, etc. |
+| **CANCELLED** | Stopped by the user |
+| **PENDING** | Not checked yet |
 
 ---
 
-## Límites y advertencias
+## Exports
 
-1. **No analiza “pantalla negra” ni imagen congelada** como haría FFmpeg con `blackdetect` / `freezedetect`. Un slate negro con frames válidos puede salir **OK**.
-2. **No es un test de calidad de imagen** ni de continuidad a largo plazo: solo una muestra corta al abrir el stream.
-3. **Streams DRM / con licencia** (Widevine, etc.) en general **no** se pueden validar sin el entorno del cliente original.
-4. **Dependencia de VLC**: el comportamiento puede variar entre versiones de VLC/libVLC y del binding `python-vlc`.
-5. **`--no-video`**: evita ventanas al verificar; en builds muy raras, si no hubiera tamaño de frame ni stats, podrían aparecer falsos FAIL. En ese caso habría que ajustar las opciones de instancia de VLC.
-6. **Verificación secuencial**: no paraleliza players (libVLC + GUI se vuelven inestables con muchos a la vez).
-7. **Red / CDN / geo-bloqueo**: un FAIL puede ser temporal (404, 403, sobrecarga). Usa reintentos o vuelve a pasar solo los fallidos.
-8. **Listas ilegales o contenido con derechos de autor**: el autor de la herramienta no respalda el uso indebido de listas IPTV. Úsala solo con fuentes que tengas derecho a comprobar.
-9. **Export M3U**: conserva el bloque original de cada entrada. Solo se omiten entradas que no pasaron el filtro (OK o fallidos). No se reordenan atributos ni se reescriben URLs.
+- **CSV** (`;`): number, name, status, detail, detected resolution, URL.
+- **OK / failed M3U**: writes the playlist’s original header (`#EXTM3U` or other) and, for each filtered channel, **its full original block** as in the input file:
+  - `#EXTINF` line with all attributes (`tvg-id`, `tvg-logo`, `group-title`, etc.)
+  - related directives (`#EXTVLCOPT`, `#KODIPROP`, `#EXTHTTP`, …)
+  - stream URL
+
+The result can be loaded again in VLC, Kodi, TiviMate, or another client without losing metadata or per-channel HTTP headers.
 
 ---
 
-## Solución de problemas
+## Limits and warnings
 
-### **Falta python-vlc**  
+1. **Does not detect “black screen” or frozen image** the way FFmpeg would with `blackdetect` / `freezedetect`. A black slate with valid frames can still be **OK**.
+2. **Not an image-quality or long-term continuity test**: only a short sample when the stream is opened.
+3. **DRM / licensed streams** (Widevine, etc.) generally **cannot** be validated without the original client environment.
+4. **Depends on VLC**: behavior may vary across VLC/libVLC versions and the `python-vlc` binding.
+5. **`--no-video`**: avoids windows while checking; on very unusual builds, if neither frame size nor stats are available, false FAILs may appear. In that case, adjust the VLC instance options.
+6. **Sequential checking**: does not run multiple players in parallel (libVLC + GUI become unstable with many at once).
+7. **Network / CDN / geo-blocking**: a FAIL may be temporary (404, 403, overload). Use retries or re-run failed entries only.
+8. **Illegal playlists or copyrighted content**: the tool’s author does not endorse misuse of IPTV lists. Use it only with sources you have the right to check.
+9. **M3U export**: keeps each entry’s original block. Only entries that did not match the filter (OK or failed) are omitted. Attributes are not reordered and URLs are not rewritten.
+
+---
+
+## Troubleshooting
+
+### **Missing python-vlc**  
 ```bash
 pip install python-vlc
 ```
 
-### **Error al crear la instancia VLC / no encuentra libvlc**  
-- Instala VLC de 64 bits si tu Python es 64 bits (o ambos 32 bits).  
-- En Windows, reinstala VLC y reinicia la terminal.  
-- En Linux: `sudo apt install vlc` (o el equivalente).
+### **Error creating the VLC instance / libvlc not found**  
+- Install 64-bit VLC if your Python is 64-bit (or both 32-bit).  
+- On Windows, reinstall VLC and restart the terminal.  
+- On Linux: `sudo apt install vlc` (or equivalent).
 
-### **Casi todo sale FALLÓ por timeout**  
-Sube **Timeout** a 30 s y **Reintentos** a 2. Algunos HLS tardan en entregar el primer segmento.
+### **Almost everything is FAILED due to timeout**  
+Raise **Timeout** to 30 s and **Retries** to 2. Some HLS streams are slow to deliver the first segment.
 
-### **Radios marcadas como FALLÓ**  
-Desactiva **Exigir vídeo**.
+### **Radio stations marked FAILED**  
+Turn off **Require video**.
 
-### **La GUI no responde durante el análisis**  
-Es normal que el hilo de UI solo actualice la tabla por cola; el trabajo pesado va en segundo plano. Usa **Detener** para abortar al terminar el canal actual.
+### **GUI unresponsive during analysis**  
+It is normal for the UI thread to update the table only via the queue; heavy work runs in the background. Use **Stop** to abort after the current channel finishes.
 
 ---
 
-_Desarrollado en su totalidad con inteligencia articial._
+_Fully developed with artificial intelligence._
